@@ -121,6 +121,21 @@ try:
 except:
     npu_available = False
 
+
+try:
+    import torch_gcu  # noqa: F401
+    _ = torch.gcu.device_count()
+    gcu_available = torch.gcu.is_available()
+except:
+    gcu_available = False
+
+# GCU Support
+def is_enflame_gcu():
+    global gcu_available
+    if args.use_gcu and gcu_available:
+        return True
+    return False
+
 try:
     import torch_mlu  # noqa: F401
     _ = torch.mlu.device_count()
@@ -164,6 +179,8 @@ def get_torch_device():
     else:
         if is_intel_xpu():
             return torch.device("xpu", torch.xpu.current_device())
+        elif is_enflame_gcu(): # GCU Support
+            return torch.device("gcu", torch.gcu.current_device())
         elif is_ascend_npu():
             return torch.device("npu", torch.npu.current_device())
         elif is_mlu():
@@ -188,6 +205,11 @@ def get_total_memory(dev=None, torch_total_too=False):
             mem_reserved = stats['reserved_bytes.all.current']
             mem_total_torch = mem_reserved
             mem_total = torch.xpu.get_device_properties(dev).total_memory
+        elif is_enflame_gcu(): # GCU Support
+            stats = torch.gcu.memory_stats(dev)
+            mem_reserved = stats['reserved_bytes.all.current']
+            mem_total_torch = mem_reserved
+            mem_total = torch.gcu.get_device_properties(dev).total_memory
         elif is_ascend_npu():
             stats = torch.npu.memory_stats(dev)
             mem_reserved = stats['reserved_bytes.all.current']
@@ -291,6 +313,9 @@ try:
     if is_intel_xpu() or is_ascend_npu() or is_mlu():
         if args.use_split_cross_attention == False and args.use_quad_cross_attention == False:
             ENABLE_PYTORCH_ATTENTION = True
+    if is_enflame_gcu(): # GCU Support
+        if args.use_split_cross_attention == False and args.use_quad_cross_attention == False:
+            ENABLE_PYTORCH_ATTENTION = True
 except:
     pass
 
@@ -371,6 +396,8 @@ def get_torch_device_name(device):
             return "{}".format(device.type)
     elif is_intel_xpu():
         return "{} {}".format(device, torch.xpu.get_device_name(device))
+    elif is_enflame_gcu(): # GCU Support
+        return "{} {}".format(device, torch.gcu.get_device_name(device))
     elif is_ascend_npu():
         return "{} {}".format(device, torch.npu.get_device_name(device))
     elif is_mlu():
@@ -971,6 +998,8 @@ def xformers_enabled():
         return False
     if directml_enabled:
         return False
+    if is_enflame_gcu(): # GCU Support
+        return False
     return XFORMERS_IS_AVAILABLE
 
 
@@ -1037,6 +1066,13 @@ def get_free_memory(dev=None, torch_free_too=False):
             mem_free_torch = mem_reserved - mem_active
             mem_free_xpu = torch.xpu.get_device_properties(dev).total_memory - mem_reserved
             mem_free_total = mem_free_xpu + mem_free_torch
+        elif is_enflame_gcu(): # GCU Support
+            stats = torch.gcu.memory_stats(dev)
+            mem_active = stats['active_bytes.all.current']
+            mem_reserved = stats['reserved_bytes.all.current']
+            mem_free_torch = mem_reserved - mem_active
+            mem_free_gcu = torch.gcu.get_device_properties(dev).total_memory - mem_reserved
+            mem_free_total = mem_free_gcu + mem_free_torch
         elif is_ascend_npu():
             stats = torch.npu.memory_stats(dev)
             mem_active = stats['active_bytes.all.current']
@@ -1117,6 +1153,9 @@ def should_use_fp16(device=None, model_params=0, prioritize_performance=True, ma
     if is_intel_xpu():
         return True
 
+    if is_enflame_gcu(): # GCU Support
+        return True
+
     if is_ascend_npu():
         return True
 
@@ -1180,6 +1219,8 @@ def should_use_bf16(device=None, model_params=0, prioritize_performance=True, ma
     if is_intel_xpu():
         return True
 
+    if is_enflame_gcu():
+        return True
     if is_ascend_npu():
         return True
 
@@ -1235,6 +1276,8 @@ def soft_empty_cache(force=False):
         torch.mps.empty_cache()
     elif is_intel_xpu():
         torch.xpu.empty_cache()
+    elif is_enflame_gcu(): # GCU Support
+        torch.gcu.empty_cache()
     elif is_ascend_npu():
         torch.npu.empty_cache()
     elif is_mlu():
